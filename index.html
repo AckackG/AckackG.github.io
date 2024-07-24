@@ -1,14 +1,131 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>我的页面</title>
+    <style>
+      /* Reset some default browser styles */
+      body,
+      h1,
+      ul,
+      li,
+      a {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        text-decoration: none;
+      }
 
-<head>
-  <title>我的简单页面</title>
-</head>
+      body {
+        font-family: "Arial", sans-serif;
+        line-height: 1.6;
+        background-color: #f5f5f5;
+        color: #333;
+      }
 
-<body>
-  <h1>欢迎来到我的简单页面</h1>
-  <p>这是一个简单的段落，用于展示 HTML 的基本结构。</p>
-  <img src="https://example.com/image.jpg" alt="示例图片" />
-</body>
+      .container {
+        width: 90%;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
 
+      header {
+        padding: 10px 0;
+        text-align: center;
+        background-color: #007bff;
+        color: white;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        font-size: 2rem;
+        font-weight: normal;
+      }
+
+      .link-category {
+        margin-bottom: 30px;
+      }
+
+      .link-category h2 {
+        font-size: 1.5rem;
+        margin-bottom: 10px;
+        color: #007bff;
+      }
+
+      .links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .link-item {
+        flex: 1 1 30%; /* Responsive flex items */
+        background-color: #fff;
+        padding: 10px 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: background-color 0.3s;
+      }
+
+      .link-item:hover {
+        background-color: #007bff;
+        color: white;
+      }
+
+      a {
+        color: inherit;
+        font-size: 1rem;
+      }
+
+      @media (max-width: 768px) {
+        .link-item {
+          flex: 1 1 45%; /* Adjust the size for smaller screens */
+        }
+      }
+
+      @media (max-width: 480px) {
+        .link-item {
+          flex: 1 1 100%; /* Adjust the size for mobile screens */
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <header>
+        <h1>我的页面</h1>
+      </header>
+
+      <!-- Example of adding categories -->
+      <div class="link-category">
+        <h2>工具</h2>
+        <div class="links">
+          <div class="link-item">
+            <a href="tools/bilisub2srt/index.html">转B站自动字幕为SRT</a>
+          </div>
+          <!-- Add more links as needed -->
+        </div>
+      </div>
+
+      <div class="link-category">
+        <h2>教程</h2>
+        <div class="links">
+          <div class="link-item">
+            <a href="tutorials/guide1.html">x</a>
+          </div>
+          <div class="link-item">
+            <a href="tutorials/guide2.html">x</a>
+          </div>
+          <!-- Add more links as needed -->
+        </div>
+      </div>
+
+      <!-- Add more categories as needed -->
+    </div>
+  </body>
 </html>
