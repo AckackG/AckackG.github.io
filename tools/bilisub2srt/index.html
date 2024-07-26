@@ -3,79 +3,79 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>JSON to SRT Converter</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        min-height: 100vh;
-        background-color: #f7f7f7;
-      }
-
-      .container {
-        width: 90%;
-        max-width: 800px;
-        margin: 20px auto;
-        padding: 20px;
-        background-color: #fff;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        border-radius: 8px;
-      }
-
-      textarea {
-        width: 100%;
-        height: 200px;
-        padding: 10px;
-        font-size: 16px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        margin-bottom: 20px;
-        resize: none;
-      }
-
-      button {
-        padding: 10px 20px;
-        font-size: 16px;
-        color: #fff;
-        background-color: #007bff;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        margin: 5px;
-      }
-
-      button:hover {
-        background-color: #0056b3;
-      }
-
-      #output {
-        width: 100%;
-        min-height: 150px;
-        padding: 10px;
-        font-size: 16px;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        background-color: #f9f9f9;
-        white-space: pre-wrap; /* Preserve whitespace formatting */
-      }
-    </style>
+    <title>B站自动字幕转SRT</title>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <div class="instructions">
+      使用说明： Devtools Network， 点击视频上的字幕按钮，
+      filter=subtitle，复制粘贴response到这里
+    </div>
     <div class="container">
+      <!-- 使用说明 -->
+
       <textarea
         id="jsonInput"
-        placeholder="Enter Bilibili Subtitle JSON  here..."
+        placeholder='
+      // 正确的格式：
+      {
+        "font_size": 0.4,
+        "font_color": "#FFFFFF",
+        "background_alpha": 0.5,
+        "background_color": "#9C27B0",
+        "Stroke": "none",
+        "type": "AIsubtitle",
+        "lang": "zh",
+        "version": "v1.7.0.4",
+        "body": [
+          {
+            "from": 43.52,
+            "to": 45.4,
+            "sid": 1,
+            "location": 2,
+            "content": "第 1 条字幕",
+            "music": 0.0
+          },
+          {
+            "from": 57.8,
+            "to": 59.78,
+            "sid": 2,
+            "location": 2,
+            "content": "第 2 条字幕第 2 条字幕",
+            "music": 0.0
+          },
+          {
+            "from": 59.78,
+            "to": 60.72,
+            "sid": 3,
+            "location": 2,
+            "content": "第 3 条字幕第 3 条字幕第 3 条字幕",
+            "music": 0.0
+          }
+          ]
+        }'
       ></textarea>
-      <div>
+      <div id="midbuttons">
         <button id="convertButton">Convert to SRT</button>
-        <button id="copyButton">Copy Result</button>
+        <label for="file-input" class="file-input-button"
+          >批量处理原始JSON文件</label
+        >
+        <input type="file" id="file-input" multiple />
       </div>
-      <div id="output"></div>
+      <div id="output">
+        1<br />
+        00:00:43,520 --> 00:00:45,400<br />
+        第 1 条字幕<br />
+        <br />
+        2<br />
+        00:00:57,800 --> 00:00:59,780<br />
+        第 2 条字幕第 2 条字幕<br />
+        <br />
+        3<br />
+        00:00:59,780 --> 00:01:00,720<br />
+        第 3 条字幕第 3 条字幕第 3 条字幕<br />
+      </div>
+      <div><button id="copyButton">Copy Result</button></div>
     </div>
 
     <script>
@@ -107,7 +107,7 @@
         try {
           data = JSON.parse(jsonString);
         } catch (error) {
-          return "Invalid JSON format.";
+          return "Invalid JSON format." + error;
         }
 
         if (!data || !Array.isArray(data.body)) {
@@ -150,6 +150,51 @@
             }
           );
         });
+
+      function changeFileExtensionToSRT(filename) {
+        // 使用lastIndexOf找到最后一个"."的位置
+        const lastDotIndex = filename.lastIndexOf(".");
+
+        // 如果文件名中没有"."，直接添加".srt"
+        if (lastDotIndex === -1) {
+          return filename + ".srt";
+        } else {
+          // 否则，将文件名截断到最后一个"."之前，并添加".srt"
+          return filename.substring(0, lastDotIndex) + ".srt";
+        }
+      }
+
+      document
+        .getElementById("file-input")
+        .addEventListener("change", (event) => {
+          const files = event.target.files;
+
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const content = e.target.result;
+              downloadFile(
+                changeFileExtensionToSRT(file.name),
+                convertToSRT(content)
+              );
+            };
+            reader.readAsText(file);
+          }
+        });
+
+      function downloadFile(filename, content) {
+        const element = document.createElement("a");
+        element.setAttribute(
+          "href",
+          "data:text/plain;charset=utf-8," + encodeURIComponent(content)
+        );
+        element.setAttribute("download", filename);
+        element.style.display = "none";
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+      }
     </script>
   </body>
 </html>
