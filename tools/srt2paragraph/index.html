@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SRT转TXT段落</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="instructions">使用说明： 粘贴SRT/VTT全文，或上传字幕文件</div>
+    <div class="container">
+      <!-- 使用说明 -->
+
+      <textarea
+        id="jsonInput"
+        placeholder="
+        // 正确的格式：
+        1
+        00:00:01,000 --> 00:00:04,360
+        text text text text text text text text text 
+
+        2
+        00:00:04,360 --> 00:00:08,940
+        text text text text text text text text text 
+
+        3
+        00:00:08,940 --> 00:00:11,520
+        text text text text text text text text text 
+        "
+      ></textarea>
+      <div id="midbuttons">
+        <button id="convertButton">Convert to TXT</button>
+        <div>
+          <span>间隔分钟:</span>
+          <select id="numberDropdown">
+            <option value="0.5">0.5</option>
+            <option value="1">1</option>
+            <option value="1.5" selected>1.5</option>
+            <option value="2">2</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+            <option value="60">60</option>
+          </select>
+        </div>
+
+        <label for="file-input" class="file-input-button">批量处理字幕文件</label>
+        <input type="file" id="file-input" multiple />
+      </div>
+      <div id="output"></div>
+      <div><button id="copyButton">Copy Result</button></div>
+    </div>
+
+    <script>
+      function srtToParagraphs(srtText) {
+        // 将时间字符串转换为秒数，例如 "00:05:00.000" -> 300 秒
+        function timeToSeconds(timeStr) {
+          const [hours, minutes, seconds] = timeStr.split(":");
+          return (
+            parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseFloat(seconds.replace(",", "."))
+          );
+        }
+
+        // 解析 SRT 格式的内容
+        const srtEntries = srtText.split("\n\n"); // 分割每个条目
+        let paragraphs = [];
+        let currentParagraph = "";
+        let lastTime = 0;
+        const interval = parseFloat(document.getElementById("numberDropdown").value) * 60;
+
+        srtEntries.forEach((entry) => {
+          //check if --> in entry
+          if (!entry.includes("-->")) {
+            return;
+          }
+
+          const lines = entry.split("\n");
+          var timeLine, text;
+          if (lines.length >= 2) {
+            if (lines.length === 2) {
+              timeLine = lines[0]; // 第1行是时间
+              text = lines[1];
+            } else if (lines.length === 3) {
+              timeLine = lines[1]; // 第2行是时间
+              text = lines[2];
+            }
+
+            const [start, end] = timeLine.split(" --> ");
+            const startTime = timeToSeconds(start.trim());
+
+            // 如果当前时间超过了 5 分钟，则开始新的段落
+            if (startTime - lastTime >= interval) {
+              if (currentParagraph) {
+                paragraphs.push(
+                  `${(lastTime / 60).toFixed(1)}min --> ${(startTime / 60).toFixed(
+                    1
+                  )}min \n${currentParagraph.trim()}`
+                );
+              }
+              currentParagraph = ""; // 清空当前段落
+              lastTime = startTime; // 更新最后时间
+            }
+
+            // 添加字幕内容
+            currentParagraph += text + ",";
+          }
+        });
+
+        // 添加最后一个段落
+        if (currentParagraph) {
+          paragraphs.push(`${(lastTime / 60).toFixed(1)}min --> ~min \n${currentParagraph.trim()}`);
+        }
+
+        return paragraphs.join("\n\n");
+      }
+
+      // Handle button click event to convert JSON to SRT
+      document.getElementById("convertButton").addEventListener("click", function () {
+        const jsonInput = document.getElementById("jsonInput").value;
+        const output = srtToParagraphs(jsonInput);
+        document.getElementById("output").textContent = output;
+      });
+
+      // Handle button click event to copy the output to clipboard
+      document.getElementById("copyButton").addEventListener("click", function () {
+        const output = document.getElementById("output");
+        navigator.clipboard.writeText(output.textContent).then(
+          () => {
+            alert("Result copied to clipboard!");
+          },
+          () => {
+            alert("Failed to copy result to clipboard.");
+          }
+        );
+      });
+
+      function changeFileExtensionToTXT(filename) {
+        // 使用lastIndexOf找到最后一个"."的位置
+        const lastDotIndex = filename.lastIndexOf(".");
+
+        // 如果文件名中没有"."，直接添加".txt"
+        if (lastDotIndex === -1) {
+          return filename + ".txt";
+        } else {
+          // 否则，将文件名截断到最后一个"."之前，并添加".txt"
+          return filename.substring(0, lastDotIndex) + ".txt";
+        }
+      }
+
+      document.getElementById("file-input").addEventListener("change", (event) => {
+        const files = event.target.files;
+
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const content = e.target.result;
+            downloadFile(changeFileExtensionToTXT(file.name), srtToParagraphs(content));
+          };
+          reader.readAsText(file);
+        }
+      });
+
+      function downloadFile(filename, content) {
+        const element = document.createElement("a");
+        element.setAttribute(
+          "href",
+          "data:text/plain;charset=utf-8," + encodeURIComponent(content)
+        );
+        element.setAttribute("download", filename);
+        element.style.display = "none";
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+      }
+    </script>
+  </body>
+</html>
