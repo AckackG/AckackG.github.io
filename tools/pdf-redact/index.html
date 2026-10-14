@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF 本地脱敏工具</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page-wrapper">
+    <nav class="nav-bar">
+      <a href="../../index.html" class="back-link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        返回工具列表
+      </a>
+    </nav>
+
+    <div class="main-card">
+      <header class="card-header">
+        <div class="title-row">
+          <h1>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            PDF 本地脱敏工具
+          </h1>
+          <span class="badge-privacy">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            纯前端本地运算 · 零数据上传
+          </span>
+        </div>
+        <div class="security-banner">
+          <span class="icon">🔒</span>
+          <div>
+            <strong>100% 隐私安全保证</strong>：所有 PDF 处理均直接在您的浏览器内通过 WebAssembly 核心完成，文件绝不上传至任何服务器。<br />
+            底层基于 <code>mupdf.js</code> 引擎：敏感词从文档内容流中<strong>真正删除</strong>并在原位置写入 <code>***</code> 占位，防复制且无法逆向提取。
+          </div>
+        </div>
+      </header>
+
+      <!-- Step 1: Upload -->
+      <section class="step-section">
+        <div class="step-label">
+          <span class="step-num">1</span>
+          <span>选择要脱敏的 PDF 文件</span>
+        </div>
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-icon">📄</div>
+          <div class="dropzone-text">点击选择文件，或将 PDF 文件拖拽到此处</div>
+          <div class="dropzone-hint">支持各类标准文本型 PDF 文件</div>
+          <input type="file" id="file" accept="application/pdf,.pdf" />
+        </div>
+        <div class="file-info-badge" id="fileInfoBadge">
+          <div class="file-info-left">
+            <span>📎</span>
+            <span class="file-name" id="fileName">未选择文件</span>
+            <span class="file-size" id="fileSize"></span>
+          </div>
+          <button type="button" class="btn-reselect" id="btnReselect">重新选择</button>
+        </div>
+      </section>
+
+      <!-- Step 2: Keywords -->
+      <section class="step-section">
+        <div class="step-label">
+          <span class="step-num">2</span>
+          <span>输入脱敏关键词</span>
+        </div>
+        <div class="step-desc">
+          每行输入一个关键词，完全匹配（区分大小写）。行首尾空格自动过滤，行内空格会保留。
+        </div>
+        <div class="kw-input-wrap">
+          <textarea id="kw" placeholder="张三&#10;13800138000"></textarea>
+          <div class="kw-toolbar">
+            <span id="kwCount">已输入 0 个关键词</span>
+            <div class="kw-quick-links">
+              <button type="button" id="btnSample">填入示例</button>
+              <button type="button" id="btnClearKw">清空关键词</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 3: Options -->
+      <div class="option-row">
+        <label class="custom-checkbox-label">
+          <input type="checkbox" id="black" />
+          <span>同时画黑框（默认不画，只显示 ***）</span>
+        </label>
+        <div class="option-tip">
+          勾选后除替换文字外，还会盖上黑色遮罩矩形；未勾选时仅擦除文字并在原位置保留 *** 占位。
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions-area">
+        <button id="run" disabled>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          开始脱敏
+        </button>
+        <a id="dl" style="display:none">
+          <button type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            下载脱敏后的 PDF
+          </button>
+        </a>
+      </div>
+
+      <!-- Status -->
+      <div id="status" class="status-loading">正在加载 mupdf 引擎（约 10MB，首次较慢）…</div>
+
+      <!-- Result Table -->
+      <div id="result"></div>
+
+      <!-- Preview Images -->
+      <div id="preview"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as mupdf from "https://cdn.jsdelivr.net/npm/mupdf@1.28.1/dist/mupdf.js";
+
+    // BEGIN CORE
+    function redactPdf(mupdf, data, keywords, opts = {}) {
+      const doc = mupdf.Document.openDocument(data, "application/pdf");
+      const pdf = doc.asPDF();
+      const counts = Object.fromEntries(keywords.map(k => [k, 0]));
+      const skipped = Object.fromEntries(keywords.map(k => [k, 0]));
+      const n = pdf.countPages();
+      const helv = pdf.addSimpleFont(new mupdf.Font("Helvetica"));
+      for (let i = 0; i < n; i++) {
+        const page = pdf.loadPage(i);
+        const boxes = [];
+        // collect every char with its center, for exact case-sensitive verification
+        const chars = []; let line = -1;
+        page.toStructuredText("preserve-whitespace").walk({
+          beginLine() { line++; },
+          onChar(c, o, f, s, q) { chars.push({ c, line, x: (q[0]+q[2]+q[4]+q[6])/4, y: (q[1]+q[3]+q[5]+q[7])/4 }); }
+        });
+        for (const kw of keywords) {
+          const hits = page.search(kw); // NOTE: mupdf search is case-insensitive
+          for (const quads of hits) {
+            let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+            for (const q of quads) for (let j=0;j<8;j+=2){x0=Math.min(x0,q[j]);x1=Math.max(x1,q[j]);y0=Math.min(y0,q[j+1]);y1=Math.max(y1,q[j+1]);}
+            // text actually under the hit quads
+            let txt = "", last = null;
+            for (const ch of chars) {
+              const inside = quads.some(q => {
+                const qx0=Math.min(q[0],q[4]), qx1=Math.max(q[2],q[6]), qy0=Math.min(q[1],q[3]), qy1=Math.max(q[5],q[7]);
+                return ch.x>=qx0 && ch.x<=qx1 && ch.y>=qy0 && ch.y<=qy1;
+              });
+              if (!inside) continue;
+              if (last !== null && ch.line !== last) txt += " ";
+              txt += ch.c; last = ch.line;
+            }
+            if (txt !== kw) { skipped[kw]++; continue; }
+            counts[kw]++;
+            const a = page.createAnnotation("Redact");
+            a.setQuadPoints(quads);
+            a.update();
+            boxes.push([x0,y0,x1,y1]);
+          }
+        }
+        if (!boxes.length) continue;
+        // black_boxes=false, images: none(0), line art: none(0), text: remove(0)
+        page.applyRedactions(opts.blackBoxes ?? false, 0, 0, 0);
+        // Draw "***" into the page content stream at each redacted box
+        const pobj = page.getObject();
+        let res = pobj.get("Resources");
+        if (!res || res.isNull()) { res = pdf.newDictionary(); pobj.put("Resources", res); }
+        let fonts = res.get("Font");
+        if (!fonts || fonts.isNull()) { fonts = pdf.newDictionary(); res.put("Font", fonts); }
+        fonts.put("FRedact", helv);
+        const H = page.getBounds()[3]; // fitz y is top-down; PDF is bottom-up
+        let ops = "q 0 g\n";
+        for (const [x0,y0,x1,y1] of boxes) {
+          const h = y1 - y0, size = Math.max(4, h * 0.8);
+          ops += `BT /FRedact ${size.toFixed(2)} Tf ${x0.toFixed(2)} ${(H - y1 + h*0.2).toFixed(2)} Td (***) Tj ET\n`;
+        }
+        ops += "Q\n";
+        const stm = pdf.addStream(ops, null);
+        const c = pobj.get("Contents");
+        if (c.isArray()) c.push(stm);
+        else { const arr = pdf.newArray(); arr.push(c); arr.push(stm); pobj.put("Contents", arr); }
+      }
+      const out = pdf.saveToBuffer("garbage=4,compress").asUint8Array();
+      return { out, counts, skipped };
+    }
+    // END CORE
+
+    const $ = id => document.getElementById(id);
+
+    // UI Helper & Enhancements
+    const statusEl = $("status");
+    function updateStatusClass() {
+      const txt = statusEl.textContent;
+      statusEl.className = "";
+      if (txt.includes("正在加载") || txt.includes("加载中")) {
+        statusEl.className = "status-loading";
+      } else if (txt.includes("已就绪")) {
+        statusEl.className = "status-ready";
+      } else if (txt.includes("处理中")) {
+        statusEl.className = "status-processing";
+      } else if (txt.includes("完成")) {
+        statusEl.className = "status-success";
+      } else if (txt.includes("出错")) {
+        statusEl.className = "status-error";
+      }
+    }
+    const observer = new MutationObserver(updateStatusClass);
+    observer.observe(statusEl, { childList: true, characterData: true, subtree: true });
+
+    // File Dropzone logic
+    const dropzone = $("dropzone");
+    const fileInput = $("file");
+    const fileInfoBadge = $("fileInfoBadge");
+    const fileName = $("fileName");
+    const fileSize = $("fileSize");
+    const btnReselect = $("btnReselect");
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+    }
+
+    function updateFileInfo(file) {
+      if (file) {
+        fileName.textContent = file.name;
+        fileSize.textContent = `(${formatBytes(file.size)})`;
+        fileInfoBadge.classList.add("active");
+        dropzone.style.display = "none";
+      } else {
+        fileInfoBadge.classList.remove("active");
+        dropzone.style.display = "block";
+      }
+    }
+
+    fileInput.addEventListener("change", () => {
+      updateFileInfo(fileInput.files[0]);
+    });
+
+    btnReselect.addEventListener("click", () => {
+      fileInput.value = "";
+      updateFileInfo(null);
+      fileInput.click();
+    });
+
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", () => {
+      dropzone.classList.remove("dragover");
+    });
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        fileInput.files = e.dataTransfer.files;
+        updateFileInfo(e.dataTransfer.files[0]);
+      }
+    });
+
+    // Keyword counter & helpers
+    const kwInput = $("kw");
+    const kwCount = $("kwCount");
+    const btnSample = $("btnSample");
+    const btnClearKw = $("btnClearKw");
+
+    function updateKwCount() {
+      const count = kwInput.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean).length;
+      kwCount.textContent = `已输入 ${count} 个关键词`;
+    }
+    kwInput.addEventListener("input", updateKwCount);
+    btnSample.addEventListener("click", () => {
+      kwInput.value = "张三\n13800138000";
+      updateKwCount();
+    });
+    btnClearKw.addEventListener("click", () => {
+      kwInput.value = "";
+      updateKwCount();
+    });
+
+    // Engine Ready
+    $("status").textContent = "引擎已就绪。";
+    $("run").disabled = false;
+    window.__ready = true;
+
+    // Run action
+    $("run").onclick = async () => {
+      const f = $("file").files[0];
+      if (!f) {
+        alert("请先选择 PDF 文件");
+        return;
+      }
+      const kws = [...new Set($("kw").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
+      if (!kws.length) {
+        alert("请输入关键词");
+        return;
+      }
+
+      $("status").textContent = "处理中…";
+      $("result").innerHTML = "";
+      $("preview").innerHTML = "";
+      $("dl").style.display = "none";
+      $("run").disabled = true;
+
+      await new Promise(r => setTimeout(r, 30));
+
+      try {
+        const { out, counts, skipped } = redactPdf(
+          mupdf,
+          new Uint8Array(await f.arrayBuffer()),
+          kws,
+          { blackBoxes: $("black").checked }
+        );
+
+        // verify: re-open output and check keywords are gone
+        const doc = mupdf.Document.openDocument(out, "application/pdf");
+        let text = "";
+        for (let i = 0; i < doc.countPages(); i++) {
+          text += doc.loadPage(i).toStructuredText().asText();
+        }
+
+        let rows = "<tr><th>关键词</th><th>已替换</th><th>跳过（大小写等不完全匹配）</th><th>输出中是否还能搜到</th></tr>";
+        for (const k of kws) {
+          const statusTag = text.includes(k)
+            ? '<span class="tag-badge tag-warning">⚠️ 仍存在</span>'
+            : '<span class="tag-badge tag-success">✅ 已彻底删除</span>';
+          rows += `<tr><td><strong>${k.replace(/</g, "&lt;")}</strong></td><td>${counts[k]}</td><td>${skipped[k]}</td><td>${statusTag}</td></tr>`;
+        }
+
+        const noHits = Object.values(counts).every(c => c === 0)
+          ? '<div class="no-hits-tip">⚠️ 没有任何命中。若是扫描件或字体缺少 ToUnicode 映射，将无法搜索到文字。</div>'
+          : '';
+
+        $("result").innerHTML = "<table>" + rows + "</table>" + noHits;
+        window.__result = { counts, skipped, text };
+
+        const url = URL.createObjectURL(new Blob([out], { type: "application/pdf" }));
+        $("dl").href = url;
+        $("dl").download = f.name.replace(/\.pdf$/i, "") + "_脱敏.pdf";
+        $("dl").style.display = "inline-block";
+
+        const np = Math.min(doc.countPages(), 5);
+        if (np > 0) {
+          const previewTitle = document.createElement("div");
+          previewTitle.className = "preview-title";
+          previewTitle.textContent = `脱敏效果预览（前 ${np} 页，共 ${doc.countPages()} 页）`;
+          $("preview").appendChild(previewTitle);
+
+          const previewGrid = document.createElement("div");
+          previewGrid.className = "preview-grid";
+
+          for (let i = 0; i < np; i++) {
+            const pix = doc.loadPage(i).toPixmap(mupdf.Matrix.scale(1.2, 1.2), mupdf.ColorSpace.DeviceRGB, false);
+            const item = document.createElement("div");
+            item.className = "preview-item";
+
+            const header = document.createElement("div");
+            header.className = "preview-header";
+            header.textContent = `第 ${i + 1} 页 / 共 ${doc.countPages()} 页`;
+
+            const img = document.createElement("img");
+            img.src = URL.createObjectURL(new Blob([pix.asPNG()], { type: "image/png" }));
+
+            item.appendChild(header);
+            item.appendChild(img);
+            previewGrid.appendChild(item);
+          }
+          $("preview").appendChild(previewGrid);
+        }
+
+        $("status").textContent = "完成。预览前 " + np + " 页（共 " + doc.countPages() + " 页）。";
+      } catch (e) {
+        console.error(e);
+        $("status").textContent = "出错：" + e.message;
+      } finally {
+        $("run").disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>
