@@ -246,8 +246,16 @@
         if (c.isArray()) c.push(stm);
         else { const arr = pdf.newArray(); arr.push(c); arr.push(stm); pobj.put("Contents", arr); }
       }
-      const out = pdf.saveToBuffer("garbage=4,compress").asUint8Array();
+      const out = copyBytes(pdf.saveToBuffer("garbage=4,compress").asUint8Array());
       return { out, counts, skipped };
+    }
+
+    // asUint8Array() is a view into WASM memory. Later MuPDF calls can grow the
+    // heap and detach it, which makes the download a 0-byte file.
+    function copyBytes(u8) {
+      const copy = new Uint8Array(u8.byteLength);
+      copy.set(u8);
+      return copy;
     }
 
     // Pages are 1-based and inclusive. pageCount 0 skips the upper-bound check.
@@ -583,7 +591,7 @@
           if (!deleted.length) throw new Error("没有可删除的页码");
           if (deleted.length >= beforeCount) throw new Error("不能删除全部页面，至少保留 1 页");
           for (const p of [...deleted].sort((a, b) => b - a)) srcPdf.deletePage(p - 1);
-          bytes = srcPdf.saveToBuffer("garbage=4,compress").asUint8Array();
+          bytes = copyBytes(srcPdf.saveToBuffer("garbage=4,compress").asUint8Array());
         }
 
         let out = bytes;
@@ -597,6 +605,10 @@
             { blackBoxes: $("black").checked }
           ));
         }
+
+        if (!out.byteLength) throw new Error("导出的 PDF 是空的");
+        const pdfBlob = new Blob([out], { type: "application/pdf" });
+        const url = URL.createObjectURL(pdfBlob);
 
         const doc = mupdf.Document.openDocument(out, "application/pdf");
         let html = "";
@@ -624,7 +636,6 @@
         $("result").innerHTML = html;
         window.__result = { counts, skipped, text, deleted, beforeCount, afterCount: doc.countPages() };
 
-        const url = URL.createObjectURL(new Blob([out], { type: "application/pdf" }));
         const base = f.name.replace(/\.pdf$/i, "");
         const suffix = deleted.length && kws.length ? "_删页脱敏" : deleted.length ? "_删页" : "_脱敏";
         $("dl").href = url;
