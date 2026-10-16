@@ -82,7 +82,7 @@
           <span class="icon">🔒</span>
           <div>
             <strong>100% 隐私安全保证</strong>：所有 PDF 处理均直接在您的浏览器内通过 WebAssembly 核心完成，文件绝不上传至任何服务器。<br />
-            底层基于 <code>mupdf.js</code> 引擎：敏感词从文档内容流中<strong>真正删除</strong>并在原位置写入 <code>***</code> 占位，防复制且无法逆向提取。
+            底层基于 <code>mupdf.js</code> 引擎：敏感词从文档内容流中<strong>真正删除</strong>并在原位置写入 <code>***</code> 占位，防复制且无法逆向提取。也可以按页码直接删除整页，例如 <code>1,3,12,16-20</code>。
           </div>
         </div>
       </header>
@@ -91,7 +91,7 @@
       <section class="step-section">
         <div class="step-label">
           <span class="step-num">1</span>
-          <span>选择要脱敏的 PDF 文件</span>
+          <span>选择 PDF 文件</span>
         </div>
         <div class="dropzone" id="dropzone">
           <div class="dropzone-icon">📄</div>
@@ -107,6 +107,7 @@
           </div>
           <button type="button" class="btn-reselect" id="btnReselect">重新选择</button>
         </div>
+        <div id="sourcePreview"></div>
       </section>
 
       <!-- Step 2: Keywords -->
@@ -116,7 +117,7 @@
           <span>输入脱敏关键词</span>
         </div>
         <div class="step-desc">
-          每行输入一个关键词，完全匹配（区分大小写）。行首尾空格自动过滤，行内空格会保留。
+          每行输入一个关键词，完全匹配（区分大小写）。行首尾空格自动过滤，行内空格会保留。不需要脱敏时可以留空。
         </div>
         <div class="kw-input-wrap">
           <textarea id="kw" placeholder="张三&#10;13800138000"></textarea>
@@ -130,7 +131,20 @@
         </div>
       </section>
 
-      <!-- Step 3: Options -->
+      <!-- Step 3: Delete pages -->
+      <section class="step-section">
+        <div class="step-label">
+          <span class="step-num">3</span>
+          <span>删除指定页面（可选）</span>
+        </div>
+        <div class="step-desc">
+          页码从 1 开始，按所选原文件计算。多个页用逗号分隔，连续页用短横线，例如 <code>1,3,12,16-20</code>。留空则不删页。同时填写关键词时，会先删页再脱敏。
+        </div>
+        <input id="pages" type="text" placeholder="1,3,12,16-20" autocomplete="off" spellcheck="false" />
+        <div class="pages-hint" id="pagesHint">留空则不删除页面。页码从 1 开始，例如 1,3,12,16-20。</div>
+      </section>
+
+      <!-- Options -->
       <div class="option-row">
         <label class="custom-checkbox-label">
           <input type="checkbox" id="black" />
@@ -145,12 +159,12 @@
       <div class="actions-area">
         <button id="run" disabled>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          开始脱敏
+          开始处理
         </button>
         <a id="dl" style="display:none">
           <button type="button">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            下载脱敏后的 PDF
+            下载处理后的 PDF
           </button>
         </a>
       </div>
@@ -235,6 +249,60 @@
       const out = pdf.saveToBuffer("garbage=4,compress").asUint8Array();
       return { out, counts, skipped };
     }
+
+    // Pages are 1-based and inclusive. pageCount 0 skips the upper-bound check.
+    function parsePageSpec(spec, pageCount) {
+      const text = String(spec || "").trim();
+      if (!text) return [];
+      const parts = text.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const set = new Set();
+      for (const part of parts) {
+        let from;
+        let to;
+        const range = part.match(/^(\d+)\s*[-~～—–]\s*(\d+)$/);
+        if (range) {
+          from = Number(range[1]);
+          to = Number(range[2]);
+          if (from < 1 || to < 1 || from > to) throw new Error("页码区间无效：" + part);
+        } else if (/^\d+$/.test(part)) {
+          from = to = Number(part);
+          if (from < 1) throw new Error("页码必须从 1 开始：" + part);
+        } else {
+          throw new Error("无法识别的页码：" + part);
+        }
+        if (to > 1000000) throw new Error("页码过大：" + part);
+        if (!pageCount && to - from > 10000) throw new Error("区间过大：" + part);
+        if (pageCount && (from > pageCount || to > pageCount)) {
+          throw new Error("页码超出范围（共 " + pageCount + " 页）：" + part);
+        }
+        for (let p = from; p <= to; p++) set.add(p);
+      }
+      return [...set].sort((a, b) => a - b);
+    }
+
+    function formatPageList(pages) {
+      if (!pages.length) return "";
+      const parts = [];
+      let start = pages[0];
+      let prev = pages[0];
+      for (let i = 1; i <= pages.length; i++) {
+        const n = pages[i];
+        if (n === prev + 1) {
+          prev = n;
+          continue;
+        }
+        parts.push(start === prev ? String(start) : start + "-" + prev);
+        start = n;
+        prev = n;
+      }
+      return parts.join(",");
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, ch => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[ch]));
+    }
     // END CORE
 
     const $ = id => document.getElementById(id);
@@ -291,6 +359,123 @@
       return (bytes / (1024 * 1024)).toFixed(2) + " MB";
     }
 
+    let sourcePageCount = 0;
+    let previewToken = 0;
+
+    function clearPreview(container) {
+      container.querySelectorAll("img").forEach(img => {
+        if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+      });
+      container.replaceChildren();
+    }
+
+    async function renderPreview(container, doc, opts) {
+      const token = opts.token;
+      if (token !== undefined && token !== previewToken) return null;
+      clearPreview(container);
+      const total = doc.countPages();
+      const np = Math.min(total, opts.limit);
+      if (np <= 0) return { np: 0, total };
+      const previewTitle = document.createElement("div");
+      previewTitle.className = "preview-title";
+      previewTitle.textContent = opts.title(np, total);
+      container.appendChild(previewTitle);
+      const grid = document.createElement("div");
+      grid.className = "preview-grid";
+      container.appendChild(grid);
+      for (let i = 0; i < np; i++) {
+        if (token !== undefined && token !== previewToken) return null;
+        const pix = doc.loadPage(i).toPixmap(
+          mupdf.Matrix.scale(opts.scale, opts.scale),
+          mupdf.ColorSpace.DeviceRGB,
+          false
+        );
+        const item = document.createElement("div");
+        item.className = "preview-item";
+        const header = document.createElement("div");
+        header.className = "preview-header";
+        header.textContent = `第 ${i + 1} 页 / 共 ${total} 页`;
+        const img = document.createElement("img");
+        img.alt = `第 ${i + 1} 页`;
+        img.src = URL.createObjectURL(new Blob([pix.asPNG()], { type: "image/png" }));
+        item.appendChild(header);
+        item.appendChild(img);
+        grid.appendChild(item);
+        if (i % 2 === 1) await new Promise(r => setTimeout(r, 0));
+      }
+      return { np, total };
+    }
+
+    function updatePagesHint() {
+      const el = $("pagesHint");
+      const raw = $("pages").value;
+      el.classList.remove("ok", "bad");
+      if (!raw.trim()) {
+        el.textContent = sourcePageCount
+          ? `当前共 ${sourcePageCount} 页。留空则不删除页面。`
+          : "留空则不删除页面。页码从 1 开始，例如 1,3,12,16-20。";
+        return;
+      }
+      try {
+        const pages = parsePageSpec(raw, sourcePageCount || 0);
+        if (sourcePageCount && pages.length >= sourcePageCount) {
+          el.classList.add("bad");
+          el.textContent = "不能删除全部页面，至少保留 1 页。";
+          return;
+        }
+        el.classList.add("ok");
+        const list = formatPageList(pages);
+        el.textContent = sourcePageCount
+          ? `将删除 ${pages.length} 页：${list}。保留 ${sourcePageCount - pages.length} 页。`
+          : `将删除 ${pages.length} 页：${list}。选择文件后会校验是否超出总页数。`;
+      } catch (e) {
+        el.classList.add("bad");
+        el.textContent = e.message;
+      }
+    }
+
+    async function previewSource(file) {
+      const token = ++previewToken;
+      const box = $("sourcePreview");
+      clearPreview(box);
+      sourcePageCount = 0;
+      updatePagesHint();
+      if (!file) return;
+      const loading = document.createElement("div");
+      loading.className = "preview-title";
+      loading.textContent = "正在生成原文件预览…";
+      box.appendChild(loading);
+      await new Promise(r => setTimeout(r, 30));
+      if (token !== previewToken) return;
+      try {
+        const data = new Uint8Array(await file.arrayBuffer());
+        if (token !== previewToken) return;
+        const doc = mupdf.Document.openDocument(data, "application/pdf");
+        if (token !== previewToken) return;
+        sourcePageCount = doc.countPages();
+        if (fileInput.files[0] === file) {
+          fileSize.textContent = `(${formatBytes(file.size)} · 共 ${sourcePageCount} 页)`;
+        }
+        updatePagesHint();
+        const limit = Math.min(sourcePageCount, 30);
+        await renderPreview(box, doc, {
+          token,
+          limit,
+          scale: sourcePageCount > 8 ? 0.72 : 1.05,
+          title: (np, total) => np < total
+            ? `原文件预览（前 ${np} 页，共 ${total} 页）`
+            : `原文件预览（共 ${total} 页）`
+        });
+      } catch (e) {
+        if (token !== previewToken) return;
+        clearPreview(box);
+        const title = document.createElement("div");
+        title.className = "preview-title";
+        title.textContent = "预览失败：" + (e && e.message ? e.message : e);
+        box.appendChild(title);
+      }
+    }
+
     function updateFileInfo(file) {
       if (file) {
         fileName.textContent = file.name;
@@ -301,6 +486,7 @@
         fileInfoBadge.classList.remove("active");
         dropzone.style.display = "block";
       }
+      previewSource(file);
     }
 
     fileInput.addEventListener("change", () => {
@@ -350,6 +536,8 @@
       updateKwCount();
     });
 
+    $("pages").addEventListener("input", updatePagesHint);
+
     // Engine Ready
     $("status").textContent = "引擎已就绪。";
     $("run").disabled = false;
@@ -363,84 +551,97 @@
         return;
       }
       const kws = [...new Set($("kw").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
-      if (!kws.length) {
-        alert("请输入关键词");
+      const pageRaw = $("pages").value;
+      if (!kws.length && !pageRaw.trim()) {
+        alert("请输入关键词，或填写要删除的页码");
+        return;
+      }
+      try {
+        if (pageRaw.trim()) parsePageSpec(pageRaw, 0);
+      } catch (e) {
+        $("status").textContent = "出错：" + e.message;
         return;
       }
 
       $("status").textContent = "处理中…";
       $("result").innerHTML = "";
-      $("preview").innerHTML = "";
+      clearPreview($("preview"));
       $("dl").style.display = "none";
       $("run").disabled = true;
 
       await new Promise(r => setTimeout(r, 30));
 
       try {
-        const { out, counts, skipped } = redactPdf(
-          mupdf,
-          new Uint8Array(await f.arrayBuffer()),
-          kws,
-          { blackBoxes: $("black").checked }
-        );
+        let bytes = new Uint8Array(await f.arrayBuffer());
+        let deleted = [];
+        let beforeCount = 0;
+        if (pageRaw.trim()) {
+          const src = mupdf.Document.openDocument(bytes, "application/pdf");
+          const srcPdf = src.asPDF();
+          beforeCount = srcPdf.countPages();
+          deleted = parsePageSpec(pageRaw, beforeCount);
+          if (!deleted.length) throw new Error("没有可删除的页码");
+          if (deleted.length >= beforeCount) throw new Error("不能删除全部页面，至少保留 1 页");
+          for (const p of [...deleted].sort((a, b) => b - a)) srcPdf.deletePage(p - 1);
+          bytes = srcPdf.saveToBuffer("garbage=4,compress").asUint8Array();
+        }
 
-        // verify: re-open output and check keywords are gone
+        let out = bytes;
+        let counts = {};
+        let skipped = {};
+        if (kws.length) {
+          ({ out, counts, skipped } = redactPdf(
+            mupdf,
+            bytes,
+            kws,
+            { blackBoxes: $("black").checked }
+          ));
+        }
+
         const doc = mupdf.Document.openDocument(out, "application/pdf");
+        let html = "";
+        if (deleted.length) {
+          html += `<div class="delete-summary">已删除 ${deleted.length} 页（${escapeHtml(formatPageList(deleted))}），原文件 ${beforeCount} 页，剩余 ${beforeCount - deleted.length} 页。</div>`;
+        }
+
         let text = "";
-        for (let i = 0; i < doc.countPages(); i++) {
-          text += doc.loadPage(i).toStructuredText().asText();
+        if (kws.length) {
+          for (let i = 0; i < doc.countPages(); i++) {
+            text += doc.loadPage(i).toStructuredText().asText();
+          }
+          let rows = "<tr><th>关键词</th><th>已替换</th><th>跳过（大小写等不完全匹配）</th><th>输出中是否还能搜到</th></tr>";
+          for (const k of kws) {
+            const statusTag = text.includes(k)
+              ? '<span class="tag-badge tag-warning">⚠️ 仍存在</span>'
+              : '<span class="tag-badge tag-success">✅ 已彻底删除</span>';
+            rows += `<tr><td><strong>${escapeHtml(k)}</strong></td><td>${counts[k]}</td><td>${skipped[k]}</td><td>${statusTag}</td></tr>`;
+          }
+          const noHits = Object.values(counts).every(c => c === 0)
+            ? '<div class="no-hits-tip">⚠️ 没有任何命中。若是扫描件或字体缺少 ToUnicode 映射，将无法搜索到文字。</div>'
+            : '';
+          html += "<table>" + rows + "</table>" + noHits;
         }
-
-        let rows = "<tr><th>关键词</th><th>已替换</th><th>跳过（大小写等不完全匹配）</th><th>输出中是否还能搜到</th></tr>";
-        for (const k of kws) {
-          const statusTag = text.includes(k)
-            ? '<span class="tag-badge tag-warning">⚠️ 仍存在</span>'
-            : '<span class="tag-badge tag-success">✅ 已彻底删除</span>';
-          rows += `<tr><td><strong>${k.replace(/</g, "&lt;")}</strong></td><td>${counts[k]}</td><td>${skipped[k]}</td><td>${statusTag}</td></tr>`;
-        }
-
-        const noHits = Object.values(counts).every(c => c === 0)
-          ? '<div class="no-hits-tip">⚠️ 没有任何命中。若是扫描件或字体缺少 ToUnicode 映射，将无法搜索到文字。</div>'
-          : '';
-
-        $("result").innerHTML = "<table>" + rows + "</table>" + noHits;
-        window.__result = { counts, skipped, text };
+        $("result").innerHTML = html;
+        window.__result = { counts, skipped, text, deleted, beforeCount, afterCount: doc.countPages() };
 
         const url = URL.createObjectURL(new Blob([out], { type: "application/pdf" }));
+        const base = f.name.replace(/\.pdf$/i, "");
+        const suffix = deleted.length && kws.length ? "_删页脱敏" : deleted.length ? "_删页" : "_脱敏";
         $("dl").href = url;
-        $("dl").download = f.name.replace(/\.pdf$/i, "") + "_脱敏.pdf";
+        $("dl").download = base + suffix + ".pdf";
         $("dl").style.display = "inline-block";
 
-        const np = Math.min(doc.countPages(), 5);
-        if (np > 0) {
-          const previewTitle = document.createElement("div");
-          previewTitle.className = "preview-title";
-          previewTitle.textContent = `脱敏效果预览（前 ${np} 页，共 ${doc.countPages()} 页）`;
-          $("preview").appendChild(previewTitle);
-
-          const previewGrid = document.createElement("div");
-          previewGrid.className = "preview-grid";
-
-          for (let i = 0; i < np; i++) {
-            const pix = doc.loadPage(i).toPixmap(mupdf.Matrix.scale(1.2, 1.2), mupdf.ColorSpace.DeviceRGB, false);
-            const item = document.createElement("div");
-            item.className = "preview-item";
-
-            const header = document.createElement("div");
-            header.className = "preview-header";
-            header.textContent = `第 ${i + 1} 页 / 共 ${doc.countPages()} 页`;
-
-            const img = document.createElement("img");
-            img.src = URL.createObjectURL(new Blob([pix.asPNG()], { type: "image/png" }));
-
-            item.appendChild(header);
-            item.appendChild(img);
-            previewGrid.appendChild(item);
-          }
-          $("preview").appendChild(previewGrid);
-        }
-
-        $("status").textContent = "完成。预览前 " + np + " 页（共 " + doc.countPages() + " 页）。";
+        const actionName = deleted.length && kws.length ? "删页并脱敏" : deleted.length ? "删页" : "脱敏";
+        const shown = await renderPreview($("preview"), doc, {
+          limit: 5,
+          scale: 1.2,
+          title: (np, total) => `${actionName}效果预览（前 ${np} 页，共 ${total} 页）`
+        });
+        const np = shown ? shown.np : 0;
+        const bits = ["完成"];
+        if (deleted.length) bits.push(`已删除 ${deleted.length} 页`);
+        bits.push(`预览前 ${np} 页（共 ${doc.countPages()} 页）`);
+        $("status").textContent = bits.join("。") + "。";
       } catch (e) {
         console.error(e);
         $("status").textContent = "出错：" + e.message;
